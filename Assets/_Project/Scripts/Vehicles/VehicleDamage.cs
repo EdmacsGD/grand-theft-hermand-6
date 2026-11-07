@@ -97,7 +97,7 @@ namespace GTH6
             float speed = velocity.magnitude;
             if (speed < minRagdollSpeed) return;
 
-            Vector3 point = other.ClosestPoint(transform.position);
+            Vector3 point = other.bounds.ClosestPoint(transform.position); // works for every collider type, CharacterController included
             Vector3 impulse = (velocity + Vector3.up * (speed * 0.3f)).normalized * (speed * impulsePerSpeed);
             GameObject instigator = vehicle.Driver != null ? vehicle.Driver.gameObject : gameObject;
 

@@ -90,7 +90,7 @@ namespace GTH6
 
             // Where the station would be right now if it had been playing since the game started.
             // Each station gets a different offset so they do not all start their playlists together.
-            float offset = (station.GetInstanceID() & 0xffff) * 7.31f;
+            float offset = (station.stationName.Length * 37 + station.TotalLength.GetHashCode() & 0xffff) * 7.31f;
             float t = (Time.unscaledTime + offset) % station.TotalLength;
 
             foreach (AudioClip clip in station.tracks)

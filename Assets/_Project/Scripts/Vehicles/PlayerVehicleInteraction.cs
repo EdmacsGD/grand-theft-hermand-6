@@ -118,6 +118,7 @@ namespace GTH6
             {
                 // Free cars, and cars with an AI driver (you can take those, GTA style). Not other players' cars.
                 if (v == null || (v.HasDriver && !(v.Driver is IVehicleAI))) continue;
+                if (v.SpeedKmh > 15f) continue; // no jumping into moving cars
                 Vector3 door = v.ExitPoint != null ? v.ExitPoint.position : v.transform.position;
                 float d = Vector3.Distance(transform.position, door);
                 if (d < bestDistance)

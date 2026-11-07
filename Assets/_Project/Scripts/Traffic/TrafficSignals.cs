@@ -67,7 +67,7 @@ namespace GTH6
         public void Build()
         {
             foreach (Intersection old in intersections.Values)
-                foreach ((RoadNode _, Renderer r) in old.lamps) if (r != null) Destroy(r.gameObject);
+                foreach (var lamp in old.lamps) if (lamp.renderer != null) Destroy(lamp.renderer.gameObject);
             intersections.Clear();
 
             foreach (RoadNode node in network.Nodes)
