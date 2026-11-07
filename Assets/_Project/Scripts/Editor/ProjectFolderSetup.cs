@@ -31,6 +31,7 @@ namespace GTH6.EditorTools
             "Assets/_Project/Scripts/Combat",
             "Assets/_Project/Scripts/Core",
             "Assets/_Project/Scripts/Player",
+            "Assets/_Project/Scripts/Roads",
             "Assets/_Project/Scripts/Editor",
             "Assets/_Project/Settings",
             "Assets/_Project/Timeline"
