@@ -1,26 +1,89 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
 
 namespace GTH6.EditorTools
 {
+    /// <summary>All clips the player Animator can use. Only Idle, Walk, Jog and Sprint forward are required.</summary>
+    [Serializable]
+    public class PlayerClipSet
+    {
+        public AnimationClip idle;
+        public AnimationClip walkForward, walkBackward, walkLeft, walkRight;
+        public AnimationClip jogForward, jogBackward, jogLeft, jogRight;
+        public AnimationClip sprintForward;
+        public AnimationClip crouchIdle, crouchForward, crouchBackward, crouchLeft, crouchRight;
+        public AnimationClip jump, fall, vault, getUp;
+        public AnimationClip driving, enterCar, exitCar;
+
+        public bool HasRequired => idle != null && walkForward != null && jogForward != null && sprintForward != null;
+
+        /// <summary>
+        /// Fills the set from clip names in a folder ("Walking", "Fast Run", "Left Strafe Walking"...),
+        /// the way GTH6 > Set Up Mixamo Files names them. Unknown names are ignored.
+        /// </summary>
+        public static PlayerClipSet FindInFolder(string folder)
+        {
+            var clips = AssetDatabase.FindAssets("t:AnimationClip", new[] { folder })
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .Distinct()
+                .SelectMany(p => AssetDatabase.LoadAllAssetsAtPath(p))
+                .OfType<AnimationClip>()
+                .Where(c => !c.name.StartsWith("__preview__", StringComparison.Ordinal))
+                .ToList();
+
+            AnimationClip Pick(Func<string, bool> rule) => clips.FirstOrDefault(c => rule(c.name.ToLowerInvariant()));
+            bool Has(string n, params string[] words) => words.All(n.Contains);
+            bool Lacks(string n, params string[] words) => !words.Any(n.Contains);
+            string[] directional = { "back", "left", "right", "strafe", "turn", "crouch" };
+
+            var set = new PlayerClipSet
+            {
+                idle = Pick(n => Has(n, "idle") && Lacks(n, "crouch", "fight", "to ", "rifle", "pistol")),
+                walkForward = Pick(n => Has(n, "walk") && Lacks(n, directional)),
+                walkBackward = Pick(n => Has(n, "walk", "back") && Lacks(n, "crouch")),
+                walkLeft = Pick(n => Has(n, "walk", "left") && Lacks(n, "crouch", "turn")),
+                walkRight = Pick(n => Has(n, "walk", "right") && Lacks(n, "crouch", "turn")),
+                jogForward = Pick(n => Has(n, "jog") && Lacks(n, directional)),
+                jogBackward = Pick(n => (Has(n, "jog", "back") || Has(n, "run", "back")) && Lacks(n, "crouch")),
+                jogLeft = Pick(n => Has(n, "strafe", "left") && Lacks(n, "walk", "crouch")),
+                jogRight = Pick(n => Has(n, "strafe", "right") && Lacks(n, "walk", "crouch")),
+                sprintForward = Pick(n => (Has(n, "fast run") || Has(n, "sprint")) && Lacks(n, directional)),
+                crouchIdle = Pick(n => Has(n, "crouch", "idle")),
+                crouchForward = Pick(n => Has(n, "crouch", "walk") && Lacks(n, "back", "left", "right")),
+                crouchBackward = Pick(n => Has(n, "crouch", "back")),
+                crouchLeft = Pick(n => Has(n, "crouch", "left")),
+                crouchRight = Pick(n => Has(n, "crouch", "right")),
+                jump = Pick(n => Has(n, "jump") && Lacks(n, "over", "running")),
+                fall = Pick(n => Has(n, "fall")),
+                vault = Pick(n => Has(n, "vault") || Has(n, "jump over")),
+                getUp = Pick(n => Has(n, "getting up") || Has(n, "stand up") || Has(n, "standing up")),
+                driving = Pick(n => Has(n, "driving") || Has(n, "sitting")),
+                enterCar = Pick(n => Has(n, "enter") && Has(n, "car")),
+                exitCar = Pick(n => Has(n, "exit") && Has(n, "car"))
+            };
+            // Without a jog clip, a run clip is the next best thing.
+            if (set.jogForward == null) set.jogForward = Pick(n => n.Trim() == "running" || n.Trim() == "run");
+            return set;
+        }
+    }
+
     /// <summary>
-    /// Menu GTH6 > Player Animator Builder. Drag your Mixamo clips in, press Build, and it creates
+    /// Menu GTH6 > Player Animator Builder. Drag clips in (or press Auto-Fill), press Build, and it creates
     /// the whole Animator Controller: parameters, both blend trees, all states, tags and transitions.
     /// Blend positions are in gait units (1 walk, 2 jog, 3 sprint) to match PlayerController.
     /// </summary>
     public class PlayerAnimatorBuilder : EditorWindow
     {
-        [SerializeField] AnimationClip idle;
-        [SerializeField] AnimationClip walkForward, walkBackward, walkLeft, walkRight;
-        [SerializeField] AnimationClip jogForward, jogBackward, jogLeft, jogRight;
-        [SerializeField] AnimationClip sprintForward;
-        [SerializeField] AnimationClip crouchIdle, crouchForward, crouchBackward, crouchLeft, crouchRight;
-        [SerializeField] AnimationClip jump, fall, vault, getUp;
-        [SerializeField] string outputPath = "Assets/_Project/Art/Animations/PlayerAnimator.controller";
+        public const string DefaultPath = "Assets/_Project/Art/Animations/PlayerAnimator.controller";
+        const string AnimationsFolder = "Assets/_Project/Art/Animations";
 
+        [SerializeField] PlayerClipSet clips = new PlayerClipSet();
+        [SerializeField] string outputPath = DefaultPath;
         Vector2 scroll;
 
         [MenuItem("GTH6/Player Animator Builder")]
@@ -30,42 +93,60 @@ namespace GTH6.EditorTools
         {
             scroll = EditorGUILayout.BeginScrollView(scroll);
 
-            EditorGUILayout.HelpBox("Drag the clip INSIDE each FBX (click the FBX's arrow to expand it). Fields marked * are required.", MessageType.Info);
+            EditorGUILayout.HelpBox("Press Auto-Fill to find clips in Art/Animations by name, or drag the clip INSIDE each FBX into a field. Fields marked * are required.", MessageType.Info);
+            if (GUILayout.Button("Auto-Fill From Art/Animations")) clips = PlayerClipSet.FindInFolder(AnimationsFolder);
 
             SectionLabel("Standing locomotion");
-            idle = ClipField("Idle *", idle);
-            walkForward = ClipField("Walk Forward *", walkForward);
-            walkBackward = ClipField("Walk Backward", walkBackward);
-            walkLeft = ClipField("Walk Strafe Left", walkLeft);
-            walkRight = ClipField("Walk Strafe Right", walkRight);
-            jogForward = ClipField("Jog Forward *", jogForward);
-            jogBackward = ClipField("Jog Backward", jogBackward);
-            jogLeft = ClipField("Jog Strafe Left", jogLeft);
-            jogRight = ClipField("Jog Strafe Right", jogRight);
-            sprintForward = ClipField("Sprint Forward *", sprintForward);
+            clips.idle = ClipField("Idle *", clips.idle);
+            clips.walkForward = ClipField("Walk Forward *", clips.walkForward);
+            clips.walkBackward = ClipField("Walk Backward", clips.walkBackward);
+            clips.walkLeft = ClipField("Walk Strafe Left", clips.walkLeft);
+            clips.walkRight = ClipField("Walk Strafe Right", clips.walkRight);
+            clips.jogForward = ClipField("Jog Forward *", clips.jogForward);
+            clips.jogBackward = ClipField("Jog Backward", clips.jogBackward);
+            clips.jogLeft = ClipField("Jog Strafe Left", clips.jogLeft);
+            clips.jogRight = ClipField("Jog Strafe Right", clips.jogRight);
+            clips.sprintForward = ClipField("Sprint Forward *", clips.sprintForward);
 
             SectionLabel("Crouch");
-            crouchIdle = ClipField("Crouch Idle", crouchIdle);
-            crouchForward = ClipField("Crouch Walk Forward", crouchForward);
-            crouchBackward = ClipField("Crouch Walk Backward", crouchBackward);
-            crouchLeft = ClipField("Crouch Walk Left", crouchLeft);
-            crouchRight = ClipField("Crouch Walk Right", crouchRight);
+            clips.crouchIdle = ClipField("Crouch Idle", clips.crouchIdle);
+            clips.crouchForward = ClipField("Crouch Walk Forward", clips.crouchForward);
+            clips.crouchBackward = ClipField("Crouch Walk Backward", clips.crouchBackward);
+            clips.crouchLeft = ClipField("Crouch Walk Left", clips.crouchLeft);
+            clips.crouchRight = ClipField("Crouch Walk Right", clips.crouchRight);
 
             SectionLabel("Actions");
-            jump = ClipField("Jump", jump);
-            fall = ClipField("Falling Loop", fall);
-            vault = ClipField("Vault", vault);
-            getUp = ClipField("Get Up (from back)", getUp);
+            clips.jump = ClipField("Jump", clips.jump);
+            clips.fall = ClipField("Falling Loop", clips.fall);
+            clips.vault = ClipField("Vault", clips.vault);
+            clips.getUp = ClipField("Get Up (from back)", clips.getUp);
+
+            SectionLabel("Vehicles (phase 3)");
+            clips.driving = ClipField("Driving (seated loop)", clips.driving);
+            clips.enterCar = ClipField("Entering Car", clips.enterCar);
+            clips.exitCar = ClipField("Exiting Car", clips.exitCar);
 
             EditorGUILayout.Space();
             outputPath = EditorGUILayout.TextField("Output Path", outputPath);
 
-            bool ready = idle != null && walkForward != null && jogForward != null && sprintForward != null;
-            using (new EditorGUI.DisabledScope(!ready))
+            using (new EditorGUI.DisabledScope(!clips.HasRequired))
             {
-                if (GUILayout.Button("Build Animator Controller", GUILayout.Height(32))) Build();
+                if (GUILayout.Button("Build Animator Controller", GUILayout.Height(32)))
+                {
+                    if (!File.Exists(outputPath) || EditorUtility.DisplayDialog("Overwrite?", outputPath + " already exists. Replace it?", "Replace", "Cancel"))
+                    {
+                        AnimatorController controller = Build(clips, outputPath, out List<string> missing);
+                        if (controller != null)
+                        {
+                            Selection.activeObject = controller;
+                            EditorGUIUtility.PingObject(controller);
+                            if (missing.Count > 0) Debug.LogWarning("[GTH6] Animator built. Missing optional clips: " + string.Join(", ", missing), controller);
+                            else Debug.Log("[GTH6] Animator built with all clips: " + outputPath, controller);
+                        }
+                    }
+                }
             }
-            if (!ready) EditorGUILayout.HelpBox("Assign all fields marked *.", MessageType.Warning);
+            if (!clips.HasRequired) EditorGUILayout.HelpBox("Assign all fields marked *.", MessageType.Warning);
 
             EditorGUILayout.EndScrollView();
         }
@@ -79,29 +160,34 @@ namespace GTH6.EditorTools
         static AnimationClip ClipField(string label, AnimationClip clip) =>
             (AnimationClip)EditorGUILayout.ObjectField(label, clip, typeof(AnimationClip), false);
 
-        void Build()
+        /// <summary>
+        /// Builds the controller at path, replacing any existing one without asking.
+        /// Returns null if the path is invalid or required clips are missing.
+        /// </summary>
+        public static AnimatorController Build(PlayerClipSet c, string path, out List<string> missing)
         {
-            if (!outputPath.StartsWith("Assets/") || !outputPath.EndsWith(".controller"))
+            missing = new List<string>();
+            if (!path.StartsWith("Assets/") || !path.EndsWith(".controller"))
             {
-                EditorUtility.DisplayDialog("Invalid path", "Output Path must start with Assets/ and end with .controller", "OK");
-                return;
+                Debug.LogError("[GTH6] Animator path must start with Assets/ and end with .controller: " + path);
+                return null;
+            }
+            if (!c.HasRequired)
+            {
+                Debug.LogError("[GTH6] Animator needs at least Idle, Walk Forward, Jog Forward and Sprint Forward clips.");
+                return null;
             }
 
-            if (AssetDatabase.LoadAssetAtPath<AnimatorController>(outputPath) != null)
-            {
-                if (!EditorUtility.DisplayDialog("Overwrite?", outputPath + " already exists. Replace it?", "Replace", "Cancel")) return;
-                AssetDatabase.DeleteAsset(outputPath);
-            }
+            if (AssetDatabase.LoadAssetAtPath<AnimatorController>(path) != null) AssetDatabase.DeleteAsset(path);
+            ProjectFolderSetup.EnsureFolder(Path.GetDirectoryName(path));
 
-            ProjectFolderSetup.EnsureFolder(Path.GetDirectoryName(outputPath));
-            var missing = new List<string>();
-
-            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(outputPath);
+            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(path);
             controller.AddParameter("MoveX", AnimatorControllerParameterType.Float);
             controller.AddParameter("MoveY", AnimatorControllerParameterType.Float);
             controller.AddParameter("Grounded", AnimatorControllerParameterType.Bool);
             controller.AddParameter("Crouch", AnimatorControllerParameterType.Bool);
             controller.AddParameter("Aiming", AnimatorControllerParameterType.Bool);
+            controller.AddParameter("InVehicle", AnimatorControllerParameterType.Bool);
             controller.AddParameter("Jump", AnimatorControllerParameterType.Trigger);
             controller.AddParameter("Vault", AnimatorControllerParameterType.Trigger);
 
@@ -119,34 +205,39 @@ namespace GTH6.EditorTools
 
             AnimatorState locomotion = controller.CreateBlendTreeInController("Locomotion", out BlendTree locoTree, 0);
             ConfigureTree(locoTree);
-            AddChild(locoTree, idle, 0f, 0f, missing, "Idle");
-            AddChild(locoTree, walkForward, 0f, 1f, missing, "Walk Forward");
-            AddChild(locoTree, walkBackward, 0f, -1f, missing, "Walk Backward");
-            AddChild(locoTree, walkLeft, -1f, 0f, missing, "Walk Strafe Left");
-            AddChild(locoTree, walkRight, 1f, 0f, missing, "Walk Strafe Right");
-            AddChild(locoTree, jogForward, 0f, 2f, missing, "Jog Forward");
-            AddChild(locoTree, jogBackward, 0f, -2f, missing, "Jog Backward");
-            AddChild(locoTree, jogLeft, -2f, 0f, missing, "Jog Strafe Left");
-            AddChild(locoTree, jogRight, 2f, 0f, missing, "Jog Strafe Right");
-            AddChild(locoTree, sprintForward, 0f, 3f, missing, "Sprint Forward");
+            AddChild(locoTree, c.idle, 0f, 0f, missing, "Idle");
+            AddChild(locoTree, c.walkForward, 0f, 1f, missing, "Walk Forward");
+            AddChild(locoTree, c.walkBackward, 0f, -1f, missing, "Walk Backward");
+            AddChild(locoTree, c.walkLeft, -1f, 0f, missing, "Walk Strafe Left");
+            AddChild(locoTree, c.walkRight, 1f, 0f, missing, "Walk Strafe Right");
+            AddChild(locoTree, c.jogForward, 0f, 2f, missing, "Jog Forward");
+            AddChild(locoTree, c.jogBackward, 0f, -2f, missing, "Jog Backward");
+            AddChild(locoTree, c.jogLeft, -2f, 0f, missing, "Jog Strafe Left");
+            AddChild(locoTree, c.jogRight, 2f, 0f, missing, "Jog Strafe Right");
+            AddChild(locoTree, c.sprintForward, 0f, 3f, missing, "Sprint Forward");
 
             AnimatorState crouch = controller.CreateBlendTreeInController("Crouch", out BlendTree crouchTree, 0);
             ConfigureTree(crouchTree);
-            AddChild(crouchTree, crouchIdle != null ? crouchIdle : idle, 0f, 0f, missing, "Crouch Idle");
-            if (crouchIdle == null) missing.Add("Crouch Idle (used Idle)");
-            AddChild(crouchTree, crouchForward, 0f, 1f, missing, "Crouch Walk Forward");
-            AddChild(crouchTree, crouchBackward, 0f, -1f, missing, "Crouch Walk Backward");
-            AddChild(crouchTree, crouchLeft, -1f, 0f, missing, "Crouch Walk Left");
-            AddChild(crouchTree, crouchRight, 1f, 0f, missing, "Crouch Walk Right");
+            AddChild(crouchTree, c.crouchIdle != null ? c.crouchIdle : c.idle, 0f, 0f, missing, "Crouch Idle");
+            if (c.crouchIdle == null) missing.Add("Crouch Idle (used Idle)");
+            AddChild(crouchTree, c.crouchForward, 0f, 1f, missing, "Crouch Walk Forward");
+            AddChild(crouchTree, c.crouchBackward, 0f, -1f, missing, "Crouch Walk Backward");
+            AddChild(crouchTree, c.crouchLeft, -1f, 0f, missing, "Crouch Walk Left");
+            AddChild(crouchTree, c.crouchRight, 1f, 0f, missing, "Crouch Walk Right");
 
-            AnimatorState jumpState = AddState(sm, "Jump", Pick(jump, fall, idle), "NoIK", new Vector3(500f, -100f, 0f));
-            AnimatorState airborne = AddState(sm, "Airborne", Pick(fall, idle), "NoIK", new Vector3(750f, 0f, 0f));
-            AnimatorState vaultState = AddState(sm, "Vault", Pick(vault, jump, idle), "NoIK", new Vector3(500f, 200f, 0f));
-            AnimatorState getUpState = AddState(sm, "GetUp", Pick(getUp, idle), "Locked", new Vector3(250f, 300f, 0f));
-            if (jump == null) missing.Add("Jump");
-            if (fall == null) missing.Add("Falling Loop");
-            if (vault == null) missing.Add("Vault");
-            if (getUp == null) missing.Add("Get Up");
+            AnimatorState jumpState = AddState(sm, "Jump", Pick(c.jump, c.fall, c.idle), "NoIK", new Vector3(500f, -100f, 0f));
+            AnimatorState airborne = AddState(sm, "Airborne", Pick(c.fall, c.idle), "NoIK", new Vector3(750f, 0f, 0f));
+            AnimatorState vaultState = AddState(sm, "Vault", Pick(c.vault, c.jump, c.idle), "NoIK", new Vector3(500f, 200f, 0f));
+            AnimatorState getUpState = AddState(sm, "GetUp", Pick(c.getUp, c.idle), "Locked", new Vector3(250f, 300f, 0f));
+            AnimatorState driving = AddState(sm, "Driving", Pick(c.driving, c.crouchIdle, c.idle), "Locked", new Vector3(-50f, 300f, 0f));
+            // Enter/exit states only exist when you have the clips; PlayerVehicleInteraction checks for them.
+            AnimatorState enterCar = c.enterCar != null ? AddState(sm, "EnterCar", c.enterCar, "Locked", new Vector3(-300f, 200f, 0f)) : null;
+            AnimatorState exitCar = c.exitCar != null ? AddState(sm, "ExitCar", c.exitCar, "Locked", new Vector3(-300f, 400f, 0f)) : null;
+            if (c.jump == null) missing.Add("Jump");
+            if (c.fall == null) missing.Add("Falling Loop");
+            if (c.vault == null) missing.Add("Vault");
+            if (c.getUp == null) missing.Add("Get Up");
+            if (c.driving == null) missing.Add("Driving");
 
             sm.defaultState = locomotion;
 
@@ -171,13 +262,21 @@ namespace GTH6.EditorTools
 
             Connect(getUpState, locomotion, 0.2f, true, 0.9f);
 
+            // Vehicles: code plays EnterCar / Driving; clearing InVehicle leaves the seat.
+            if (enterCar != null) Connect(enterCar, driving, 0.15f, true, 0.95f);
+            if (exitCar != null)
+            {
+                Connect(driving, exitCar, 0.1f).AddCondition(AnimatorConditionMode.IfNot, 0f, "InVehicle");
+                Connect(exitCar, locomotion, 0.2f, true, 0.9f);
+            }
+            else
+            {
+                Connect(driving, locomotion, 0.2f).AddCondition(AnimatorConditionMode.IfNot, 0f, "InVehicle");
+            }
+
             EditorUtility.SetDirty(controller);
             AssetDatabase.SaveAssets();
-            Selection.activeObject = controller;
-            EditorGUIUtility.PingObject(controller);
-
-            if (missing.Count > 0) Debug.LogWarning("[GTH6] Animator built. Missing optional clips: " + string.Join(", ", missing), controller);
-            else Debug.Log("[GTH6] Animator built with all clips: " + outputPath, controller);
+            return controller;
         }
 
         static void ConfigureTree(BlendTree tree)

@@ -121,6 +121,9 @@ namespace GTH6
                 IsRagdoll = true;
                 ragdollTimer = 0f;
 
+                // Thrown out of a car seat (or anything else we are parented to) into the world.
+                if (transform.parent != null) transform.SetParent(null, true);
+
                 foreach (Behaviour b in disableWhileRagdoll)
                     if (b != null) b.enabled = false;
                 if (cc != null) cc.enabled = false;
