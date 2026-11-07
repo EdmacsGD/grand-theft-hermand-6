@@ -62,6 +62,8 @@ namespace GTH6.EditorTools
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
             BuildCourse();
             BuildTestCars();
+            RoadNetwork roads = TrafficSetup.CreateTestGrid();
+            TrafficSetup.SetUpTraffic(roads, out _);
             GameObject player = BuildPlayer(characterModel, avatar, controller, playerLayer);
             BuildCameras(player);
 
@@ -72,7 +74,8 @@ namespace GTH6.EditorTools
 
             string message = "Scenes/PlayerTest is ready. Press Play.\n\n" +
                              "Keys: WASD, mouse, Shift, Alt, Space, C, right mouse. Test: H, J, K, R.\n" +
-                             "Cars behind you: F to get in/out, W/S, A/D, Space handbrake, Q/E radio.";
+                             "Cars behind you: F to get in/out, W/S, A/D, Space handbrake, Q/E radio.\n" +
+                             "Streets with traffic and lights start 40 m in front of you.";
             if (missingClips.Count > 0) message += "\n\nOptional clips not found (fine for now): " + string.Join(", ", missingClips);
             if (warnings.Count > 0) message += "\n\nCheck by hand:\n- " + string.Join("\n- ", warnings);
             Debug.Log("[GTH6] " + message);
@@ -338,7 +341,7 @@ namespace GTH6.EditorTools
             GameObject plane = GameObject.CreatePrimitive(PrimitiveType.Plane);
             plane.name = "Ground";
             plane.transform.SetParent(course.transform);
-            plane.transform.localScale = new Vector3(10f, 1f, 10f);
+            plane.transform.localScale = new Vector3(60f, 1f, 60f); // 600 x 600 m, room for the test road grid
             plane.GetComponent<Renderer>().sharedMaterial = ground;
 
             // Slopes: centre height = half length * sin(angle), so the low end meets the ground.

@@ -81,6 +81,10 @@ namespace GTH6
 
         bool isGrounded;
         bool onSteepSlope;
+        Rigidbody groundBody;
+        Transform platform;
+        Vector3 platformLocalPosition;
+        float platformYaw;
         Vector3 groundNormal = Vector3.up;
         float lastGroundedTime = -999f;
         float lastJumpPressedTime = -999f;
@@ -151,6 +155,7 @@ namespace GTH6
             horizontalVelocity = Vector3.zero;
             verticalVelocity = 0f;
             lastJumpPressedTime = -999f;
+            platform = null;
             if (isVaulting && cc != null) cc.enabled = true;
             isVaulting = false;
         }
@@ -171,6 +176,7 @@ namespace GTH6
             }
 
             UpdateGround();
+            ApplyPlatformMotion();
             bool locked = MovementLocked;
 
             IsAiming = input.AimHeld && !locked;
@@ -191,7 +197,31 @@ namespace GTH6
             UpdateRotation(dt);
             ApplyGravity(dt);
             Move(dt);
+            RecordPlatform();
             UpdateAnimator(dt);
+        }
+
+        // ---------------- Moving platforms (trams, funicular, cable car) ----------------
+
+        /// <summary>A CharacterController is not carried by what it stands on, so we add the platform's own movement since last frame.</summary>
+        void ApplyPlatformMotion()
+        {
+            Transform current = isGrounded && groundBody != null && groundBody.isKinematic ? groundBody.transform : null;
+            if (current != null && current == platform)
+            {
+                Vector3 delta = platform.TransformPoint(platformLocalPosition) - transform.position;
+                if (delta.sqrMagnitude > 0.000001f) cc.Move(delta);
+                float yawDelta = Mathf.DeltaAngle(platformYaw, platform.eulerAngles.y);
+                if (Mathf.Abs(yawDelta) > 0.001f) transform.Rotate(0f, yawDelta, 0f, Space.World);
+            }
+            platform = current;
+        }
+
+        void RecordPlatform()
+        {
+            if (platform == null) return;
+            platformLocalPosition = platform.InverseTransformPoint(transform.position);
+            platformYaw = platform.eulerAngles.y;
         }
 
         // ---------------- Ground ----------------
@@ -220,6 +250,7 @@ namespace GTH6
             isGrounded = false;
             onSteepSlope = false;
             groundNormal = Vector3.up;
+            groundBody = null;
 
             // Moving up (jump): never grounded.
             if (verticalVelocity > 0.01f) return;
@@ -239,6 +270,7 @@ namespace GTH6
                 }
 
                 groundNormal = normal;
+                groundBody = hit.rigidbody;
                 if (Vector3.Angle(Vector3.up, normal) <= cc.slopeLimit) isGrounded = true;
                 else onSteepSlope = true;
             }
@@ -475,6 +507,7 @@ namespace GTH6
             vaultTimer = 0f;
             verticalVelocity = 0f;
             isVaulting = true;
+            platform = null; // otherwise the stored platform offset would yank us back after landing
 
             // The capsule would collide with the obstacle, so we move the transform by hand.
             cc.enabled = false;

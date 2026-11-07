@@ -9,7 +9,7 @@ Third-person open-world action game set in a scaled-down Bergen, Norway. Unity 6
 | 1 | Project setup, player controller, camera | Compiles in Unity 6.3, scene setup next |
 | 2 | City blockout (ProBuilder), road graph | Compiles, waiting for phase 1 test |
 | 3 | Vehicle physics, enter/exit | Scripts done, not compiled in Unity yet |
-| 4 | Traffic AI | Not started |
+| 4 | Traffic AI | Scripts done, not compiled in Unity yet |
 | 5 | Pedestrian AI | Not started |
 | 6 | Time of day and weather | Not started |
 | 7 | Weapons, police, wanted system | Not started |

@@ -116,7 +116,8 @@ namespace GTH6
             float bestDistance = enterRange;
             foreach (VehicleController v in VehicleController.All)
             {
-                if (v == null || v.HasDriver) continue;
+                // Free cars, and cars with an AI driver (you can take those, GTA style). Not other players' cars.
+                if (v == null || (v.HasDriver && !(v.Driver is IVehicleAI))) continue;
                 Vector3 door = v.ExitPoint != null ? v.ExitPoint.position : v.transform.position;
                 float d = Vector3.Distance(transform.position, door);
                 if (d < bestDistance)
@@ -132,6 +133,7 @@ namespace GTH6
         {
             busy = true;
             CurrentVehicle = v;
+            if (v.Driver is IVehicleAI ai) ai.Eject();
             v.SetDriver(this); // claim it at once so nothing else can take the seat
             controller.enabled = false;
             cc.enabled = false;
